@@ -17,20 +17,18 @@ import fi.dy.masa.tweakeroo.config.FeatureToggle;
 
 public class CameraEntity extends ClientPlayerEntity
 {
-    @Nullable private static Entity originalCameraEntity;
     @Nullable private static CameraEntity camera;
+    @Nullable private static Entity originalCameraEntity;
+    private static Vec3d cameraMotion = new Vec3d(0.0, 0.0, 0.0);
     private static boolean cullChunksOriginal;
-    private static float forwardRamped;
-    private static float strafeRamped;
-    private static float verticalRamped;
     private static boolean sprinting;
     private static boolean originalCameraWasPlayer;
 
-    public CameraEntity(MinecraftClient mc, ClientWorld world,
-                        ClientPlayNetworkHandler nethandler, StatHandler stats,
-                        ClientRecipeBook recipeBook)
+    private CameraEntity(MinecraftClient mc, ClientWorld world,
+                         ClientPlayNetworkHandler netHandler, StatHandler stats,
+                         ClientRecipeBook recipeBook)
     {
-        super(mc, world, nethandler, stats, recipeBook, false, false);
+        super(mc, world, netHandler, stats, recipeBook, false, false);
     }
 
     @Override
@@ -39,82 +37,30 @@ public class CameraEntity extends ClientPlayerEntity
         return true;
     }
 
-    public static void movementTick(boolean sneak, boolean jump)
+    public static void movementTick()
     {
         CameraEntity camera = getCamera();
 
         if (camera != null && Configs.Generic.FREE_CAMERA_PLAYER_MOVEMENT.getBooleanValue() == false)
         {
-            MinecraftClient mc = MinecraftClient.getInstance();
+            GameOptions options = MinecraftClient.getInstance().options;
 
             camera.updateLastTickPosition();
 
-            float forward = 0;
-            float vertical = 0;
-            float strafe = 0;
-
-            GameOptions options = mc.options;
-            if (options.keyForward.isPressed()) { forward++;  }
-            if (options.keyBack.isPressed())    { forward--;  }
-            if (options.keyLeft.isPressed())    { strafe++;   }
-            if (options.keyRight.isPressed())   { strafe--;   }
-            if (options.keyJump.isPressed())    { vertical++; }
-            if (options.keySneak.isPressed())   { vertical--; }
-
-            if (options.keySprint.isPressed())
+            if (options.sprintKey.isPressed())
             {
                 sprinting = true;
             }
-            else if (forward == 0)
+            else if (options.forwardKey.isPressed() == false && options.backKey.isPressed() == false)
             {
                 sprinting = false;
             }
 
-            float rampAmount = 0.15f;
-            float speed = strafe * strafe + forward * forward;
+            cameraMotion = MiscUtils.calculatePlayerMotionWithDeceleration(cameraMotion, 0.15, 0.4);
+            double forward = sprinting ? cameraMotion.x * 3 : cameraMotion.x;
 
-            if (forward != 0 && strafe != 0)
-            {
-                speed = (float) Math.sqrt(speed * 0.6);
-            }
-            else
-            {
-                speed = 1;
-            }
-
-            forwardRamped  = getRampedMotion(forwardRamped , forward , rampAmount) / speed;
-            verticalRamped = getRampedMotion(verticalRamped, vertical, rampAmount);
-            strafeRamped   = getRampedMotion(strafeRamped  , strafe  , rampAmount) / speed;
-
-            forward = sprinting ? forwardRamped * 3 : forwardRamped;
-
-            camera.handleMotion(forward, verticalRamped, strafeRamped);
+            camera.handleMotion(forward, cameraMotion.y, cameraMotion.z);
         }
-    }
-
-    private static float getRampedMotion(float current, float input, float rampAmount)
-    {
-        if (input != 0)
-        {
-            if (input < 0)
-            {
-                rampAmount *= -1f;
-            }
-
-            // Immediately kill the motion when changing direction to the opposite
-            if ((input < 0) != (current < 0))
-            {
-                current = 0;
-            }
-
-            current = MathHelper.clamp(current + rampAmount, -1f, 1f);
-        }
-        else
-        {
-            current *= 0.5f;
-        }
-
-        return current;
     }
 
     private static double getMoveSpeed()
@@ -129,18 +75,18 @@ public class CameraEntity extends ClientPlayerEntity
         return base * 10;
     }
 
-    private void handleMotion(float forward, float up, float strafe)
+    private void handleMotion(double forward, double up, double strafe)
     {
         float yaw = this.getYaw();
-        double xFactor = Math.sin(yaw * Math.PI / 180D);
-        double zFactor = Math.cos(yaw * Math.PI / 180D);
         double scale = getMoveSpeed();
+        double xFactor = Math.sin(yaw * Math.PI / 180.0);
+        double zFactor = Math.cos(yaw * Math.PI / 180.0);
 
-        double x = (double) (strafe * zFactor - forward * xFactor) * scale;
-        double y = (double) up * scale;
-        double z = (double) (forward * zFactor + strafe * xFactor) * scale;
+        double x = (strafe * zFactor - forward * xFactor) * scale;
+        double y = up * scale;
+        double z = (forward * zFactor + strafe * xFactor) * scale;
+
         this.setVelocity(new Vec3d(x, y, z));
-
         this.move(MovementType.SELF, this.getVelocity());
     }
 
